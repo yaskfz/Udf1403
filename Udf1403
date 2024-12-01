@@ -1,0 +1,85 @@
+/*User-defined function used in the model of steam reforming*/
+
+#include "udf.h"
+
+
+DEFINE_VR_RATE(SM2, c, t, r, mw, yi, rr, rr_t)
+{
+	double y_co2 = yi[4];
+	double y_co = yi[3];
+	double y_h2 = yi[2];
+	double y_ch4 = yi[1];
+	double y_h2o = yi[0];
+	double Nsum, R, TP, temp, k1, k2, k3, Keq1, Keq2, Keq3, K_h2, K_co, K_h2o, K_ch4, DEN, r1, r2, r3, dcb;
+
+	/*calculate species i in the unit of kgmol i/kg mix*/
+	y_co2 *= 1.0 / mw[4];
+	y_co *= 1.0 / mw[3];
+	y_h2 *= 1.0 / mw[2];
+	y_ch4 *= 1.0 / mw[1];
+	y_h2o *= 1.0 / mw[0];
+
+	/*total mole number per kg mix */
+	Nsum = y_ch4 + y_h2o + y_h2 + y_co + y_co2 ;
+
+	/*calculate mole fraction of species i in the unit of kgmoli/kgmol mix*/
+	y_ch4 *= 1.0 / Nsum;
+	y_h2o *= 1.0 / Nsum;
+	y_h2 *= 1.0 / Nsum;
+	y_co *= 1.0 / Nsum;
+	y_co2 *= 1.0 / Nsum;
+	
+
+	/*gas constant, J/molK */
+	R = 8.314;
+
+	/*equilibrium constant calculated by the empirical formula*/
+	temp = C_T(c, t);
+	Keq1 = 10266.76 * exp((-26.83 / temp) + 30.11) * 1.0e-4; 
+	
+	/*bar^2, aus Sadooghi, Rauch*/
+	Keq2 = exp(4400.0 / temp) - 4.063;
+	Keq3 = Keq1 * Keq2; /*bar^2*/
+
+	/*reaction rate constant*/
+	k1 = 9.49e16 * exp(-240100.0 / (R * temp)); /*kmol*bar^-0.5*kg^-1*h^-1*/
+	k2 = 4.39e04 * exp(-67130.0 / (R * temp));
+	k3 = 2.29e16 * exp(-243900.0 / (R * temp));
+
+	/*adsorption coefficients*/
+	K_h2 = 8.23e-22 * exp(82900.0 / (R * temp));
+	K_co = 8.23e-7 * exp(70650.0 / (R * temp));
+	K_h2o = 1.77e+5 * exp(-88680.0 / (R * temp));
+	K_ch4 = 6.65e-4 * exp(38280.0 / (R * temp));
+
+	/*total pressure in the cell near wall, bar*/
+	TP = C_P(c, t) / (1.0e+5);
+
+	/*constant DEN factor for rate equations*/
+	DEN = 1.0 + TP * (K_ch4 * y_ch4 + K_co * y_co + K_h2 * y_h2) + K_h2o * y_h2o / y_h2;
+
+	/*unit conversion to kmol/(m3.s) with density catalyst bulk*/
+	dcb = 0.22592 ;
+
+	/*reaction rate equations*/
+	r1 = (dcb*k1/pow(TP*y_h2,2.5)) * (pow(TP,2.0)*y_ch4*y_h2o - pow(TP,4.0)*pow(y_h2,3.0)*y_co/Keq1) / pow(DEN,2.0);
+	r2 = (dcb*k2/(TP*y_h2)) * (pow(TP,2.0)*y_co*y_h2o - pow(TP,2.0)*y_h2*y_co2/Keq2) / pow(DEN, 2.0);
+	r3 = (dcb*k3/pow(TP*y_h2,3.5)) * (pow(TP,3.0)*y_ch4*pow(y_h2o,2.0) - pow(TP,5.0)*pow(y_h2,4.0)*y_co2/Keq3) / pow(DEN, 2.0);
+
+	if (!strcmp(r->name, "reaction-1"))
+	{
+		*rr = r1;
+	}
+	else if (!strcmp(r->name, "reaction-2"))
+	{
+		*rr = r2;
+	}
+	else if (!strcmp(r->name, "reaction-3"))
+	{
+		*rr = r3;
+	}
+	else
+	{
+		Message("Unknown Reaction\n");
+	}
+}
